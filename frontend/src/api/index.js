@@ -25,7 +25,15 @@ export const equipmentApi = {
 export const dishApi = {
   list: (params) => http.get('/dishes', { params }),
   create: (data) => http.post('/dishes', data),
-  update: (id, data) => http.put(`/dishes/${id}`, data)
+  update: (id, data) => http.put(`/dishes/${id}`, data),
+  recipe: (id) => http.get(`/dishes/${id}/recipe`),
+  saveRecipe: (id, lines) => http.put(`/dishes/${id}/recipe`, lines)
+}
+
+export const ingredientApi = {
+  list: (params) => http.get('/ingredients', { params }),
+  create: (data) => http.post('/ingredients', data),
+  update: (id, data) => http.put(`/ingredients/${id}`, data)
 }
 
 export const batchApi = {

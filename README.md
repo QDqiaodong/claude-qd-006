@@ -47,10 +47,24 @@ docker compose down -v    # 连数据卷一起删，下次启动重新灌种子�
 **每批必须留样且不少于 125 克**、必须写清楚是谁做的。
 状态机 `备料中 → 加工中 → 已完成`；`备料中 / 加工中` 都能作废；**完工必须登记实际做出来的份数**。
 
-- 页面：菜品与备餐批次（`/batches`）
-- 接口：`GET/POST /api/dishes`、`PUT /api/dishes/{id}`、`GET/POST /api/batches`、`POST /api/batches/{id}/advance?action=&actualPortions=`
+**开批和开火都要先扣料**（按库管规矩，不许先开批后补扣）：开备餐批、把批次从备料推进加工，
+都要按这道菜的配方扣掉「每份用量 × 计划份数」的原料；**缺料或原料已过期，既不能开批也不能推进加工**。
+扣料与批次状态变更在同一事务里，中断不会留下"加工中却没扣库存"的批次；
+并发扣同一袋原料走原子扣减，库存不会扣成负数，只先到的那笔成功。
 
-### 3. 操作间排期（`cooking_slot`）
+- 页面：菜品与备餐批次（`/batches`，菜品行上可维护配方）
+- 接口：`GET/POST /api/dishes`、`PUT /api/dishes/{id}`、`GET/PUT /api/dishes/{id}/recipe`、
+  `GET/POST /api/batches`、`POST /api/batches/{id}/advance?action=&actualPortions=`
+
+### 3. 原料台账与配方（`ingredient` / `dish_ingredient`）
+
+原料台账记下**名称、当前库存（克）和保质期**，过期原料不能耗。
+每道菜的配方 = 每份要耗哪些原料、各多少克，按菜品整组维护。
+
+- 页面：原料台账（`/ingredients`）
+- 接口：`GET/POST /api/ingredients`、`PUT /api/ingredients/{id}`
+
+### 4. 操作间排期（`cooking_slot`）
 
 排期号 `SL-xxxx` 自动生成。一条排期 = 某个操作间 + 某天 + 一个餐次 + 一个班组 + 一段时段。
 排期时校验：操作间必须在用、结束时间晚于开始时间、**操作间里不能有非可用设备**、
@@ -60,7 +74,7 @@ docker compose down -v    # 连数据卷一起删，下次启动重新灌种子�
 - 页面：操作间排期（`/slots`）
 - 接口：`GET/POST /api/slots`、`POST /api/slots/{id}/advance?action=`
 
-### 4. 出餐配送（`delivery`）
+### 5. 出餐配送（`delivery`）
 
 配送单号 `PS-xxxx` 自动生成，挂在一个**已完工**的批次上。一批餐累计发出去的份数（**退回的不算**）
 不能超过实际做出来的份数。状态机 `待发 → 在途 → 已签收`，在途未签收的可以退回；发车必须写司机。
@@ -75,9 +89,9 @@ backend/src/main/java/com/kitchen/central/
 ├── config/       CORS 配置
 ├── controller/   REST 入口
 ├── dto/          BizException + 统一错误响应
-├── entity/       6 张业务表
+├── entity/       8 张业务表
 ├── repository/   Spring Data JPA
-└── service/      业务规则（编号唯一、时段占用、留样与批次唯一、份数核减）
+└── service/      业务规则（编号唯一、时段占用、留样与批次唯一、份数核减、配方扣料）
 backend/src/main/resources/schema.sql   建表 + 种子数据（挂进 MySQL initdb）
-frontend/src/views/                     4 个业务页面
+frontend/src/views/                     5 个业务页面
 ```

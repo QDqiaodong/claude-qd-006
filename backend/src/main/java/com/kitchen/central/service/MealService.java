@@ -22,11 +22,14 @@ public class MealService {
     private final MealBatchRepository batches;
     private final DishRepository dishes;
     private final KitchenRepository kitchens;
+    private final IngredientService ingredientService;
 
-    public MealService(MealBatchRepository batches, DishRepository dishes, KitchenRepository kitchens) {
+    public MealService(MealBatchRepository batches, DishRepository dishes, KitchenRepository kitchens,
+                       IngredientService ingredientService) {
         this.batches = batches;
         this.dishes = dishes;
         this.kitchens = kitchens;
+        this.ingredientService = ingredientService;
     }
 
     public List<Dish> listDishes(String status, String category, String keyword) {
@@ -126,6 +129,9 @@ public class MealService {
             throw new BizException("菜品 " + dish.name + " 在 " + input.serveDate + " 的" + meal
                     + "已经排过一批了，同一餐不重复排");
         }
+        // 库管规矩：先按配方扣掉这批计划份数的原料，缺料或有过期原料就开不了批；
+        // 扣料和开批在同一事务里，任何一步失败一起回滚
+        ingredientService.consumeForDish(dish.id, input.planPortions);
 
         MealBatch saved = new MealBatch();
         saved.batchNo = nextBatchNo();
@@ -151,6 +157,9 @@ public class MealService {
             if (!"备料中".equals(b.status)) {
                 throw new BizException("只有备料中的批次能开火，这批现在是 " + b.status);
             }
+            // 推进加工同样要按配方扣料；缺料或有过期原料就推进不了。
+            // 扣料和改状态在同一事务里，中断不会留下"加工中却没扣库存"的批次
+            ingredientService.consumeForDish(b.dishId, b.planPortions);
             b.status = "加工中";
         } else if ("done".equals(action)) {
             if (!"加工中".equals(b.status)) {

@@ -19,8 +19,9 @@
             <el-tag :type="row.status === '在售' ? 'success' : 'info'">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110">
+        <el-table-column label="操作" width="170">
           <template #default="{ row }">
+            <el-button link type="warning" @click="openRecipe(row)">配方</el-button>
             <el-button link :type="row.status === '在售' ? 'danger' : 'primary'" @click="toggleDish(row)">
               {{ row.status === '在售' ? '停用' : '上架' }}
             </el-button>
@@ -141,19 +142,57 @@
         <el-button type="primary" @click="submitDone">完工</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="recipeVisible" :title="`配方 · ${recipeDish?.name || ''}`" width="560px">
+      <div style="margin-bottom:8px;color:#909399;font-size:12px">
+        每做一份要耗的原料；开批和开火都会按「每份用量 × 计划份数」从台账扣库存。
+      </div>
+      <el-table :data="recipeLines" border size="small">
+        <el-table-column label="原料" min-width="180">
+          <template #default="{ row }">
+            <el-select v-model="row.ingredientId" placeholder="选原料" style="width:100%">
+              <el-option
+                v-for="i in ingredients"
+                :key="i.id"
+                :label="`${i.name}（库存 ${i.stock} 克）`"
+                :value="i.id"
+              />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="每份用量(克)" width="160">
+          <template #default="{ row }">
+            <el-input-number v-model="row.quantity" :min="1" :step="10" style="width:100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="" width="70">
+          <template #default="{ $index }">
+            <el-button link type="danger" @click="recipeLines.splice($index, 1)">删掉</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-button size="small" style="margin-top:8px" @click="recipeLines.push({ ingredientId: null, quantity: 50 })">
+        加一行
+      </el-button>
+      <template #footer>
+        <el-button @click="recipeVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitRecipe">保存配方</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { batchApi, dishApi, kitchenApi } from '../api'
+import { batchApi, dishApi, ingredientApi, kitchenApi } from '../api'
 
 const statuses = ['备料中', '加工中', '已完成', '已作废']
 
 const dishes = ref([])
 const batches = ref([])
 const kitchens = ref([])
+const ingredients = ref([])
 const loading = ref(false)
 const query = reactive({ status: '', date: '', kitchenId: null })
 
@@ -167,6 +206,9 @@ const batchForm = reactive({
 const doneVisible = ref(false)
 const donePortions = ref(300)
 const doneId = ref(null)
+const recipeVisible = ref(false)
+const recipeDish = ref(null)
+const recipeLines = ref([])
 
 const sellingDishes = computed(() => dishes.value.filter((d) => d.status === '在售'))
 const usableKitchens = computed(() => kitchens.value.filter((k) => k.status === '在用'))
@@ -214,6 +256,28 @@ const toggleDish = async (row) => {
     await dishApi.update(row.id, { status: row.status === '在售' ? '停用' : '在售' })
     ElMessage.success('已更新')
     await loadDishes()
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
+}
+
+const openRecipe = async (row) => {
+  recipeDish.value = row
+  try {
+    const lines = await dishApi.recipe(row.id)
+    recipeLines.value = lines.map((l) => ({ ingredientId: l.ingredientId, quantity: l.quantity }))
+    recipeVisible.value = true
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
+}
+
+const submitRecipe = async () => {
+  const lines = recipeLines.value.filter((l) => l.ingredientId)
+  try {
+    await dishApi.saveRecipe(recipeDish.value.id, lines)
+    ElMessage.success('配方已保存')
+    recipeVisible.value = false
   } catch (e) {
     ElMessage.error(e.message)
   }
@@ -277,9 +341,10 @@ const scrap = async (row) => {
 
 onMounted(async () => {
   try {
-    const [d, k] = await Promise.all([dishApi.list({}), kitchenApi.list({})])
+    const [d, k, i] = await Promise.all([dishApi.list({}), kitchenApi.list({}), ingredientApi.list({})])
     dishes.value = d
     kitchens.value = k
+    ingredients.value = i
   } catch (e) {
     ElMessage.error(e.message)
   }
