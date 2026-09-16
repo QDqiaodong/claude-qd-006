@@ -1,5 +1,6 @@
 package com.kitchen.central.controller;
 
+import com.kitchen.central.dto.BatchQuota;
 import com.kitchen.central.entity.Delivery;
 import com.kitchen.central.service.DeliveryService;
 import java.time.LocalDate;
@@ -21,6 +22,12 @@ public class DeliveryController {
     public List<Delivery> list(@RequestParam(required = false) String status,
                                @RequestParam(required = false) Long batchId) {
         return service.list(status, batchId);
+    }
+
+    /** 各批次还能发多少份，以后台口径为准，前台开单前都来这里对 */
+    @GetMapping("/quota")
+    public List<BatchQuota> quotas() {
+        return service.quotas();
     }
 
     @PostMapping

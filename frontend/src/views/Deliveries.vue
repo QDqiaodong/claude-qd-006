@@ -86,6 +86,7 @@ const statuses = ['待发', '在途', '已签收', '已退回']
 const rows = ref([])
 const batches = ref([])
 const dishes = ref([])
+const quotas = ref([])
 const loading = ref(false)
 const query = reactive({ status: '', batchId: null })
 
@@ -104,11 +105,18 @@ const batchLabel = (id) => {
 const tagType = (s) =>
   s === '已签收' ? 'success' : s === '在途' ? 'warning' : s === '已退回' ? 'danger' : ''
 
+// 还剩多少份以后台算的额度为准，不拿页面上筛过的单子自己凑数
 const remain = (batch) => {
-  const sent = rows.value
-    .filter((r) => r.batchId === batch.id && r.status !== '已退回')
-    .reduce((sum, r) => sum + r.portions, 0)
-  return batch.actualPortions - sent
+  const q = quotas.value.find((x) => x.batchId === batch.id)
+  return q ? q.remaining : batch.actualPortions
+}
+
+const loadQuotas = async () => {
+  try {
+    quotas.value = await deliveryApi.quotas()
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
 }
 
 const load = async () => {
@@ -125,9 +133,10 @@ const load = async () => {
   }
 }
 
-const openDelivery = () => {
+const openDelivery = async () => {
   Object.assign(form, { batchId: null, customer: '', portions: 100, driver: '' })
   visible.value = true
+  await loadQuotas()
 }
 
 const submit = async () => {
@@ -135,9 +144,11 @@ const submit = async () => {
     await deliveryApi.open({ ...form })
     ElMessage.success('配送单已开')
     visible.value = false
-    await load()
+    await Promise.all([load(), loadQuotas()])
   } catch (e) {
+    // 被拦下的那张（比如同时开单、先到的那张已经占了额度）要看到原因，并刷新剩余
     ElMessage.error(e.message)
+    await loadQuotas()
   }
 }
 
@@ -165,7 +176,8 @@ const advance = async (row, action) => {
   try {
     await deliveryApi.advance(row.id, action, null, null)
     ElMessage.success('已更新')
-    await load()
+    // 退回会立刻把额度还回来，列表和额度一起刷新
+    await Promise.all([load(), loadQuotas()])
   } catch (e) {
     ElMessage.error(e.message)
   }
@@ -173,9 +185,10 @@ const advance = async (row, action) => {
 
 onMounted(async () => {
   try {
-    const [b, d] = await Promise.all([batchApi.list({}), dishApi.list({})])
+    const [b, d, q] = await Promise.all([batchApi.list({}), dishApi.list({}), deliveryApi.quotas()])
     batches.value = b
     dishes.value = d
+    quotas.value = q
   } catch (e) {
     ElMessage.error(e.message)
   }

@@ -1,5 +1,6 @@
 package com.kitchen.central.service;
 
+import com.kitchen.central.dto.BatchQuota;
 import com.kitchen.central.dto.BizException;
 import com.kitchen.central.entity.Delivery;
 import com.kitchen.central.entity.MealBatch;
@@ -7,8 +8,12 @@ import com.kitchen.central.repository.DeliveryRepository;
 import com.kitchen.central.repository.MealBatchRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -41,16 +46,27 @@ public class DeliveryService {
     }
 
     private int sentPortions(Long batchId) {
-        int sum = 0;
-        for (Delivery d : deliveries.findByBatchIdOrderByCreatedAtAsc(batchId)) {
-            if (!"已退回".equals(d.status)) {
-                sum += d.portions;
-            }
-        }
-        return sum;
+        return Math.toIntExact(deliveries.sumActivePortions(batchId));
     }
 
-    @Transactional
+    /** 各批次的出餐额度：已发（不含退回）与还能发多少，前台展示一律以这里算的为准。 */
+    public List<BatchQuota> quotas() {
+        Map<Long, Long> sentByBatch = new HashMap<>();
+        for (Object[] row : deliveries.sumActivePortionsGroupByBatch()) {
+            sentByBatch.put((Long) row[0], ((Number) row[1]).longValue());
+        }
+        List<BatchQuota> out = new ArrayList<>();
+        for (MealBatch b : batches.findAllById(sentByBatch.keySet())) {
+            out.add(new BatchQuota(b.id, b.actualPortions,
+                    Math.toIntExact(sentByBatch.get(b.id))));
+        }
+        return out;
+    }
+
+    // 对账员规矩：落账当时份数不许越过实际产量。先锁住批次行再核对，
+    // 同时来的开单排队等锁，轮到它时重新按最新已发份数核，超发的那张拦下不留；
+    // READ_COMMITTED 保证等锁结束后立刻能看到先到的单子刚落账的份数
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Delivery open(Delivery input) {
         if (input.batchId == null) {
             throw new BizException("请选一个备餐批次");
@@ -61,7 +77,7 @@ public class DeliveryService {
         if (input.portions == null || input.portions <= 0) {
             throw new BizException("配送份数要大于 0");
         }
-        MealBatch batch = batches.findById(input.batchId)
+        MealBatch batch = batches.findByIdForUpdate(input.batchId)
                 .orElseThrow(() -> new BizException("批次不存在"));
         if (!"已完成".equals(batch.status)) {
             throw new BizException("批次 " + batch.batchNo + " 现在是 " + batch.status + "，还不能出餐");

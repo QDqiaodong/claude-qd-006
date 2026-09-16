@@ -51,6 +51,7 @@ export const slotApi = {
 
 export const deliveryApi = {
   list: (params) => http.get('/deliveries', { params }),
+  quotas: () => http.get('/deliveries/quota'),
   open: (data) => http.post('/deliveries', data),
   advance: (id, action, driver, deliverDate) =>
     http.post(`/deliveries/${id}/advance`, null, { params: { action, driver, deliverDate } })
